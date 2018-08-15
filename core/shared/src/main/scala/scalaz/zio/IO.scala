@@ -532,6 +532,22 @@ sealed abstract class IO[+E, +A] { self =>
     } yield r).supervised
 
   /**
+   * Runs this action in a new fiber, resuming when the fiber terminates.
+   *
+   * If the fiber fails with an error it will be captured in Right side of the error Either
+   * If the fiber terminates because of defect, list of defects will be captured in the Left side of the Either
+   */
+  final def sandboxed: IO[Either[List[Throwable], E], A] =
+    self.run.flatMap {
+      case ExitResult.Completed(value) =>
+        IO.now(value)
+      case ExitResult.Failed(error, _) =>
+        IO.fail(Right(error))
+      case ExitResult.Terminated(ts) =>
+        IO.fail(Left(ts))
+    }
+
+  /**
    * Widens the action type to any supertype. While `map` suffices for this
    * purpose, this method is significantly faster for this purpose.
    */
