@@ -5,6 +5,7 @@ import java.io.{ ByteArrayOutputStream, PrintStream }
 
 import cats.Eq
 import cats.effect.laws.discipline.EffectTests
+import cats.effect.laws.discipline.arbitrary._
 import cats.effect.laws.util.{ TestContext, TestInstances }
 import cats.implicits._
 import cats.laws.discipline.{ AlternativeTests, BifunctorTests, MonadErrorTests, SemigroupKTests }
