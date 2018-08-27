@@ -1,17 +1,18 @@
 package scalaz.zio
 package interop
 
-import java.io.{ ByteArrayOutputStream, PrintStream }
+import java.io.{ByteArrayOutputStream, PrintStream}
 
 import cats.Eq
-import cats.effect.laws.discipline.EffectTests
-import cats.effect.laws.util.{ TestContext, TestInstances }
+import cats.effect.laws.discipline.{EffectTests, Parameters}
+import cats.effect.laws.discipline.arbitrary._
+import cats.effect.laws.util.{TestContext, TestInstances}
 import cats.implicits._
-import cats.laws.discipline.{ AlternativeTests, BifunctorTests, MonadErrorTests, SemigroupKTests }
+import cats.laws.discipline.{AlternativeTests, BifunctorTests, MonadErrorTests, SemigroupKTests}
 import cats.syntax.all._
-import org.scalacheck.{ Arbitrary, Cogen }
+import org.scalacheck.{Arbitrary, Cogen}
 import org.scalatest.prop.Checkers
-import org.scalatest.{ FunSuite, Matchers }
+import org.scalatest.{FunSuite, Matchers}
 import org.typelevel.discipline.Laws
 import org.typelevel.discipline.scalatest.Discipline
 import scalaz.zio.interop.catz._
@@ -66,6 +67,9 @@ class catzSpec extends FunSuite with Matchers with Checkers with Discipline with
       def eqv(io1: IO[E, A], io2: IO[E, A]): Boolean =
         unsafeRun(io1.attempt) === unsafeRun(io2.attempt)
     }
+
+  implicit def params: Parameters =
+    Parameters.default.copy(allowNonTerminationLaws = false)
 
   implicit def ioArbitrary[E, A: Arbitrary: Cogen]: Arbitrary[IO[E, A]] =
     Arbitrary(genSuccess[E, A])

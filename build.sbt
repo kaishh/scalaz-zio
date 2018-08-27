@@ -82,7 +82,7 @@ lazy val interop = crossProject(JSPlatform, JVMPlatform)
   .settings(
     libraryDependencies ++= Seq(
       "org.scalaz"    %%% "scalaz-core"               % "7.2.+"  % Optional,
-      "org.typelevel" %%% "cats-effect"               % "0.10.1" % Optional,
+      "org.typelevel" %%% "cats-effect"               % "1.0.0-RC2" % Optional,
       "org.scalaz"    %%% "scalaz-scalacheck-binding" % "7.2.+"  % Test,
       "co.fs2"        %%% "fs2-core"                  % "0.10.5" % Test
     ),
@@ -102,7 +102,7 @@ lazy val interopCatsLaws = project.module
   .settings(
     skip in publish := true,
     libraryDependencies ++= Seq(
-      "org.typelevel"              %% "cats-effect-laws"          % "0.10.1" % Test,
+      "org.typelevel"              %% "cats-effect-laws"          % "1.0.0-RC2" % Test,
       "org.typelevel"              %% "cats-testkit"              % "1.2.0"  % Test,
       "com.github.alexarchambault" %% "scalacheck-shapeless_1.13" % "1.1.8"  % Test
     ),
