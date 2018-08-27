@@ -1,10 +1,9 @@
 package scalaz.zio
 package interop
 
-import cats.effect
-import cats.effect.Effect
-import cats._
+import cats.effect.{Effect, ExitCase}
 import cats.syntax.functor._
+import cats.{effect, _}
 
 import scala.util.control.NonFatal
 
@@ -26,23 +25,25 @@ sealed abstract class CatsInstances2 {
 }
 
 private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] with CatsSemigroupK[Throwable] with RTS {
-  def runAsync[A](
+//  import CatsEffect._
+
+  override def runAsync[A](
     fa: Task[A]
-  )(cb: Either[Throwable, A] => effect.IO[Unit]): effect.IO[Unit] = {
+  )(cb: Either[Throwable, A] => effect.IO[Unit]): effect.SyncIO[Unit] = {
     val cbZ2C: ExitResult[Throwable, A] => Either[Throwable, A] = {
       case ExitResult.Completed(a)       => Right(a)
       case ExitResult.Failed(t, _)       => Left(t)
       case ExitResult.Terminated(Nil)    => Left(Errors.TerminatedFiber)
       case ExitResult.Terminated(t :: _) => Left(t)
     }
-    effect.IO {
+    effect.SyncIO {
       unsafeRunAsync(fa) {
         cb.compose(cbZ2C).andThen(_.unsafeRunAsync(_ => ()))
       }
     }.attempt.void
   }
 
-  def async[A](k: (Either[Throwable, A] => Unit) => Unit): Task[A] = {
+  override def async[A](k: (Either[Throwable, A] => Unit) => Unit): Task[A] = {
     val kk = k.compose[ExitResult[Throwable, A] => Unit] {
       _.compose[Either[Throwable, A]] {
         case Left(t)  => ExitResult.Failed(t)
@@ -53,13 +54,45 @@ private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] wit
     IO.async(kk)
   }
 
-  def suspend[A](thunk: => Task[A]): Task[A] = IO.suspend(
+  override def asyncF[A](k: (Either[Throwable, A] => Unit) => Task[Unit]): Task[A] = {
+    val kk = k.compose[ExitResult[Throwable, A] => Unit] {
+      _.compose[Either[Throwable, A]] {
+        case Left(t)  => ExitResult.Failed(t)
+        case Right(r) => ExitResult.Completed(r)
+      }
+    }
+
+    IO.asyncPure(kk)
+  }
+
+  override def suspend[A](thunk: => Task[A]): Task[A] = IO.suspend(
     try {
       thunk
     } catch {
       case NonFatal(e) => IO.fail(e)
     }
   )
+
+  override def bracketCase[A, B](acquire: Task[A])(use: A => Task[B])(release: (A, ExitCase[Throwable]) => Task[Unit]): Task[B] =
+    ???
+//    acquire.bracket0[Throwable, B] {
+//      (a, exitResult) =>
+//        val exitCase = exitResult match {
+//          case ExitResult.Completed(_) => ExitCase.Completed
+//          case ExitResult.Failed(error, defects) => ExitCase.Error(Errors.UnhandledError(error, defects))
+//          case ExitResult.Terminated(Nil) => ExitCase.Error(Errors.TerminatedFiber)
+//          case ExitResult.Terminated(t :: _) => ExitCase.Error(t)
+//        }
+//        release(a, exitCase).catchAll(e => IO.terminate(ReleaseError(e)))
+//    }(use)
+//      .sandboxWith(_.catchSome[Either[List[Throwable], Throwable], B] {
+//      case Left(ReleaseError(e) :: _) => IO.fail(Right(e))
+//    })
+
+}
+
+private object CatsEffect {
+  private final case class ReleaseError(e: Throwable) extends Throwable
 }
 
 private class CatsMonad[E] extends Monad[IO[E, ?]] {
