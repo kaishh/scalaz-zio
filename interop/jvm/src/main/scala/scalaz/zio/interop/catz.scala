@@ -1,15 +1,32 @@
 package scalaz.zio
 package interop
 
-import cats.effect.{Effect, ExitCase}
+import cats.effect._
+import scalaz.zio.{Fiber, IO}
 import cats.syntax.functor._
 import cats.{effect, _}
+
+import scala.concurrent.ExecutionContext
 
 object catz extends CatsInstances
 
 abstract class CatsInstances extends CatsInstances1 {
-  implicit val taskEffectInstances: Effect[Task] with SemigroupK[Task] =
-    new CatsEffect
+  implicit def rtsContextShift[E](implicit rts: RTS): ContextShift[IO[E, ?]] = new ContextShift[IO[E, ?]] {
+    override def shift: IO[E, Unit] =
+      IO.async { cb: Callback[Nothing, Unit] =>
+        rts.submit(new Runnable {
+          override def run(): Unit = cb(ExitResult.Completed(()))
+        })
+      }
+
+    override def evalOn[A](ec: ExecutionContext)(fa: IO[E, A]): IO[E, A] = IO.shift(ec) *> fa
+  }
+
+//  implicit val taskEffectInstances: Effect[Task] with SemigroupK[Task] =
+//    new CatsEffect
+
+  implicit val taskConcurrentEffectInstances: ConcurrentEffect[Task] with SemigroupK[Task] =
+    new CatsConcurrentEffect
 }
 
 sealed abstract class CatsInstances1 extends CatsInstances2 {
@@ -22,19 +39,46 @@ sealed abstract class CatsInstances2 {
     new CatsMonadError[E] with CatsSemigroupK[E] with CatsBifunctor
 }
 
+private class CatsConcurrentEffect extends CatsEffect with ConcurrentEffect[Task] {
+  private def fiber[A](f: Fiber[Throwable, A]): effect.Fiber[Task, A] = new effect.Fiber[Task, A] {
+    override def cancel: Task[Unit] = f.interrupt
+
+    override def join: Task[A] = f.join
+  }
+
+  override def runCancelable[A](fa: Task[A])(cb: Either[Throwable, A] => effect.IO[Unit]): SyncIO[CancelToken[Task]] =
+    MonadError[SyncIO, Throwable].rethrow {
+      effect.SyncIO {
+        exitResultToEither[CancelToken[Task]](unsafeRunSync {
+          fa.fork.flatMap { fiber =>
+            fiber.onComplete { exit =>
+              IO.sync(cb(exitResultToEither[A](exit)).unsafeRunAsync(_ => ()))
+            } *> IO.now(fiber.interrupt)
+          }
+        })
+      }
+    }
+
+  override def start[A](fa: Task[A]): Task[effect.Fiber[Task, A]] = fa.fork.map(fiber)
+
+  override def racePair[A, B](fa: Task[A], fb: Task[B]): Task[Either[(A, effect.Fiber[Task, B]), (effect.Fiber[Task, A], B)]] =
+    fa.raceWith(fb)({case (l, f) => IO.now(Left((l, fiber(f))))}, {case (r, f) => IO.now(Right((fiber(f), r)))})
+}
+
 private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] with CatsSemigroupK[Throwable] with RTS {
+  protected def exitResultToEither[A]: ExitResult[Throwable, A] => Either[Throwable, A] = {
+    case ExitResult.Completed(a)       => Right(a)
+    case ExitResult.Failed(t, _)       => Left(t)
+    case ExitResult.Terminated(Nil)    => Left(Errors.TerminatedFiber)
+    case ExitResult.Terminated(t :: _) => Left(t)
+  }
+
   override def runAsync[A](
     fa: Task[A]
   )(cb: Either[Throwable, A] => effect.IO[Unit]): effect.SyncIO[Unit] = {
-    val cbZ2C: ExitResult[Throwable, A] => Either[Throwable, A] = {
-      case ExitResult.Completed(a)       => Right(a)
-      case ExitResult.Failed(t, _)       => Left(t)
-      case ExitResult.Terminated(Nil)    => Left(Errors.TerminatedFiber)
-      case ExitResult.Terminated(t :: _) => Left(t)
-    }
     effect.SyncIO {
       unsafeRunAsync(fa) {
-        cb.compose(cbZ2C).andThen(_.unsafeRunAsync(_ => ()))
+        cb.compose(exitResultToEither[A]).andThen(_.unsafeRunAsync(_ => ()))
       }
     }.attempt.void
   }
@@ -62,7 +106,25 @@ private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] wit
   }
 
   override def suspend[A](thunk: => Task[A]): Task[A] =
-    IO.suspend(IO.flatten(IO.syncThrowable(thunk)))
+  // Sometimes deadlocks on 'bracket release is called on Completed or Error'
+  //  if implemented as
+//   IO.flatten(IO.syncThrowable(thunk))
+//   thunk
+  // ??? (actually, deadlocks like this too, but less often...)
+    IO.suspend(
+      try {
+        thunk
+      } catch {
+        case t: Throwable => IO.fail(t)
+      }
+    )
+
+//  override def bracketCase[A, B](acquire: Task[A])(use: A => Task[B])(release: (A, ExitCase[Throwable]) => Task[Unit]): Task[B] =
+//    for {
+//      a <- acquire
+//      b <- use(a)
+//      _ <- release(a, cats.effect.ExitCase.Completed)
+//    } yield b
 
   override def bracketCase[A, B](acquire: Task[A])(use: A => Task[B])(release: (A, ExitCase[Throwable]) => Task[Unit]): Task[B] =
     acquire.bracket0[Throwable, B] {
@@ -74,7 +136,9 @@ private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] wit
           case ExitResult.Terminated(t :: _) => ExitCase.Error(t)
         }
         release(a, exitCase)
-          .catchAll(IO.terminate(_))
+          .catchAll(IO.fail)
+//          .catchAll(IO.terminate(_))
+          .asInstanceOf[IO[Nothing, Nothing]]
     }(use)
 }
 

@@ -4,7 +4,7 @@ package interop
 import java.io.{ByteArrayOutputStream, PrintStream}
 
 import cats.Eq
-import cats.effect.laws.discipline.{EffectTests, Parameters}
+import cats.effect.laws.discipline.{ConcurrentEffectTests, EffectTests, Parameters}
 import cats.effect.laws.discipline.arbitrary._
 import cats.effect.laws.util.{TestContext, TestInstances}
 import cats.implicits._
@@ -56,6 +56,7 @@ class catzSpec extends FunSuite with Matchers with Checkers with Discipline with
       }
   }
 
+  checkAllAsync("ConcurrentEffect[Task]", implicit e => ConcurrentEffectTests[Task].concurrentEffect[Int, Int, Int])
   checkAllAsync("Effect[Task]", implicit e => EffectTests[Task].effect[Int, Int, Int])
   checkAllAsync("MonadError[IO[Int, ?]]", implicit e => MonadErrorTests[IO[Int, ?], Int].monadError[Int, Int, Int])
   checkAllAsync("Alternative[IO[Int, ?]]", implicit e => AlternativeTests[IO[Int, ?]].alternative[Int, Int, Int])
@@ -73,5 +74,7 @@ class catzSpec extends FunSuite with Matchers with Checkers with Discipline with
 
   implicit def ioArbitrary[E, A: Arbitrary: Cogen]: Arbitrary[IO[E, A]] =
     Arbitrary(genSuccess[E, A])
+
+  implicit def contextShift: cats.effect.ContextShift[Task] = rtsContextShift(this)
 
 }
