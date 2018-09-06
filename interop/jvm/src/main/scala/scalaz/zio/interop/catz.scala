@@ -7,6 +7,7 @@ import cats.syntax.functor._
 import cats.{effect, _}
 
 import scala.concurrent.ExecutionContext
+import scala.util.control.NonFatal
 
 object catz extends CatsInstances
 
@@ -47,17 +48,16 @@ private class CatsConcurrentEffect extends CatsEffect with ConcurrentEffect[Task
   }
 
   override def runCancelable[A](fa: Task[A])(cb: Either[Throwable, A] => effect.IO[Unit]): SyncIO[CancelToken[Task]] =
-    MonadError[SyncIO, Throwable].rethrow {
-      effect.SyncIO {
-        exitResultToEither[CancelToken[Task]](unsafeRunSync {
-          fa.fork.flatMap { fiber =>
-            fiber.onComplete { exit =>
-              IO.sync(cb(exitResultToEither[A](exit)).unsafeRunAsync(_ => ()))
-            } *> IO.now(fiber.interrupt)
-          }
-        })
-      }
-    }
+    runAsync(fa)(cb).as(Task.unit)
+//      effect.SyncIO {
+//        unsafeRun {
+//          fa.fork.flatMap { fiber =>
+//            fiber.onComplete { exit =>
+//              IO.async((x: Callback[Nothing, Unit]) => cb(exitResultToEither[A](exit)).unsafeRunAsync(_ => x(ExitResult.Completed(()))))
+//            } *> IO.now(fiber.interrupt)
+//          }
+//        }
+//      }
 
   override def start[A](fa: Task[A]): Task[effect.Fiber[Task, A]] = fa.fork.map(fiber)
 
@@ -115,7 +115,7 @@ private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] wit
       try {
         thunk
       } catch {
-        case t: Throwable => IO.fail(t)
+        case NonFatal(t) => IO.fail(t)
       }
     )
 
