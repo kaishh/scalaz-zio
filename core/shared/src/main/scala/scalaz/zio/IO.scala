@@ -1010,7 +1010,7 @@ object IO {
   final def bracket0[E, A, B](
     acquire: IO[E, A]
   )(release: (A, ExitResult[E, B]) => IO[Nothing, Unit])(use: A => IO[E, B]): IO[E, B] =
-    Ref[Option[ExitResult[E, B]]](None).flatMap { m =>
+    Ref[Option[ExitResult[E, B]]](None).uninterruptibly.flatMap { m =>
       bracket(acquire)(
         a => m.get.flatMap(_.fold(release(a, ExitResult.Terminated(Errors.TerminatedFiber :: Nil)))(release(a, _)))
       )(
@@ -1021,6 +1021,15 @@ object IO {
           } yield f).flatMap(_.join)
       )
     }
+//  bracket(Ref[Option[ExitResult[E, B]]](None) seq acquire){
+//      case (m, a) => m.get.flatMap(_.fold(release(a, ExitResult.Terminated(Errors.TerminatedFiber :: Nil)))(release(a, _)))
+//  }{
+//    case (m, a) => for {
+//        f <- use(a).fork
+//        _ <- f.onComplete(r => m.set(Some(r)))
+//        b <- f.join
+//      } yield b
+//  }
 
   /**
    * Acquires a resource, do some work with it, and then release that resource. `bracket`

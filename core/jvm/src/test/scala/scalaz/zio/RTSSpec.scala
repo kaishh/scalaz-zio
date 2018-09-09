@@ -81,6 +81,8 @@ class RTSSpec(implicit ee: ExecutionEnv) extends AbstractRTSSpec with AroundTime
     shallow fork/join identity              $testForkJoinIsId
     deep fork/join identity                 $testDeepForkJoinIsId
     interrupt of never                      ${upTo(1.second)(testNeverIsInterruptible)}
+    bracket is uninterruptible              ${upTo(1.second)(testBracketAcquireIsUninterruptible)}
+    bracket0 is uninterruptible             ${upTo(1.second)(testBracket0AcquireIsUninterruptible)}
     supervise fibers                        ${upTo(1.second)(testSupervise)}
     race of fail with success               ${upTo(1.second)(testRaceChoosesWinner)}
     race of fail with fail                  ${upTo(1.second)(testRaceChoosesFailure)}
@@ -462,6 +464,26 @@ class RTSSpec(implicit ee: ExecutionEnv) extends AbstractRTSSpec with AroundTime
     val io =
       for {
         fiber <- IO.never.fork
+        _     <- fiber.interrupt
+      } yield 42
+
+    unsafeRun(io) must_=== 42
+  }
+
+  def testBracketAcquireIsUninterruptible = {
+    val io =
+      for {
+        fiber <- IO.bracket[Nothing, Unit, Unit](IO.never)(_ => IO.unit)(_ => IO.unit).fork
+        _     <- fiber.interrupt
+      } yield 42
+
+    unsafeRun(io) must_=== 42
+  }
+
+  def testBracket0AcquireIsUninterruptible = {
+    val io =
+      for {
+        fiber <- IO.bracket0[Nothing, Unit, Unit](IO.never)((_, _) => IO.unit)(_ => IO.unit).fork
         _     <- fiber.interrupt
       } yield 42
 

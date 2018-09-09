@@ -1,12 +1,15 @@
 package scalaz.zio
 package interop
 
+import java.util.concurrent._
+
 import cats.effect._
 import cats.syntax.functor._
 import cats.{effect, _}
 import scalaz.zio.{Fiber, IO}
 
 import scala.concurrent.ExecutionContext
+//import scala.concurrent.duration.Duration
 import scala.util.control.NonFatal
 
 object catz extends CatsInstances
@@ -38,36 +41,44 @@ sealed abstract class CatsInstances2 {
 
 private class CatsConcurrentEffect extends CatsEffect with ConcurrentEffect[Task] {
   private def fiber[A](f: Fiber[Throwable, A]): effect.Fiber[Task, A] = new effect.Fiber[Task, A] {
-    override def cancel: Task[Unit] =
-//      Task.unit
+    override val cancel: Task[Unit] =
+//    {
+//      for {
+//      y <- Promise.make[Nothing, Unit]
+//      x = unsafeRun(f.interrupt.fork.flatMap(x => x.onComplete(_ => IO.sync(println(s"ooo fic suc $f")) *> y.complete(()).fork.void) const x))
+//      _ = println(s"ho fuck interrupoting thread $f with $x")
+//      _ <- IO.sleep(Duration.fromNanos(1000000))
+//      _ <- y.get
+//      } yield ()
+//    }
       f.interrupt
 //    // FIXME
       .fork.void
 
-    override def join: Task[A] = f.join
+    override val join: Task[A] = f.join
   }
 
   // FIXME
-//  override def liftIO[A](ioa: _root_.cats.effect.IO[A]): _root_.scalaz.zio.interop.Task[A] = Task(ioa.unsafeRunSync())
+  override def liftIO[A](ioa: effect.IO[A]): Task[A] = Async.liftIO(ioa)(this)
   // FIXME
-//  override def toIO[A](fa: _root_.scalaz.zio.interop.Task[A]): _root_.cats.effect.IO[A] = effect.IO(unsafeRun(fa))
+  override def toIO[A](fa: _root_.scalaz.zio.interop.Task[A]): _root_.cats.effect.IO[A] = Effect.toIOFromRunAsync(fa)(this)
 
   // default impl ?deadlocks?[not? just interrupt blocking issue?]
-//  override def cancelable[A](k: (Either[Throwable, A] => Unit) => CancelToken[Task]): Task[A] =
-//    IO.async0 { kk: Callback[Throwable, A] =>
-//      val token = k(eitherToExitResult andThen kk)
-//
-//      scalaz.zio.Async.maybeLaterIO(() => token.catchAll(IO.terminate(_)))
-//    }
+  override def cancelable[A](k: (Either[Throwable, A] => Unit) => CancelToken[Task]): Task[A] =
+    IO.async0 { kk: Callback[Throwable, A] =>
+      val token = k(eitherToExitResult andThen kk)
+
+      scalaz.zio.Async.maybeLaterIO(() => token.catchAll(IO.terminate(_)))
+    }
 
   override def race[A, B](fa: Task[A], fb: Task[B]): Task[Either[A, B]] = fa.raceBoth(fb)
 
   // FIXME
   override def never[A]: Task[A] =
-//    Task.unit.asInstanceOf[Task[A]]
+    Task.unit.forever
 //  override def never[A]: Task[A] =
 //    ???
-  IO.never
+//  IO.never
 
   override def start[A](fa: Task[A]): Task[effect.Fiber[Task, A]] =
     fa.fork.map(fiber)
@@ -90,15 +101,14 @@ private class CatsConcurrentEffect extends CatsEffect with ConcurrentEffect[Task
 //      }).toIO.flatMap(_ => promise.get)
 //    }.unsafeRunSync())
 
-
 //    runAsync(fa)(cb).as(Task.unit)
 
 //      effect.SyncIO {
 //        unsafeRun {
 //          fa.fork.flatMap { fiber =>
 //            fiber.onComplete { exit =>
-//              IO.sync(cb(Right(null.asInstanceOf[A])).unsafeRunAsync(_ => ()))
-////              IO.sync(cb(exitResultToEither[A](exit)).unsafeRunAsync(_ => ()))
+////              IO.sync(cb(Right(null.asInstanceOf[A])).unsafeRunAsync(_ => ()))
+//              IO.sync(cb(exitResultToEither[A](exit)).unsafeRunAsync(_ => ()))
 //            } *> IO.now(fiber.interrupt)
 //          }
 //        }
@@ -121,36 +131,76 @@ private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] wit
 
   override def runAsync[A](
     fa: Task[A]
-  )(cb: Either[Throwable, A] => effect.IO[Unit]): effect.SyncIO[Unit] = {
+  )(cb: Either[Throwable, A] => effect.IO[Unit]): effect.SyncIO[Unit] =
     effect.SyncIO {
-      unsafeRunAsync(fa) {
-        exit =>
-          cb(exitResultToEither(exit)).unsafeRunAsync(_ => ())
+      unsafeRunAsync(fa) { exit => cb(exitResultToEither(exit)).unsafeRunAsync(_ => ())
       }
     }.void
-  }
 
   override def async[A](k: (Either[Throwable, A] => Unit) => Unit): Task[A] =
-    IO.async { kk: Callback[Throwable, A] =>
-      k(eitherToExitResult andThen kk)
+    IO.async { kk: Callback[Throwable, A] => k(eitherToExitResult andThen kk)
     }
 
   override def asyncF[A](k: (Either[Throwable, A] => Unit) => Task[Unit]): Task[A] =
-    IO.asyncPure { kk: Callback[Throwable, A] =>
-      k(eitherToExitResult andThen kk)
+    IO.asyncPure { kk: Callback[Throwable, A] => k(eitherToExitResult andThen kk)
     }
 
+//  override def runAsync[A](
+//    fa: Task[A]
+//  )(cb: Either[Throwable, A] => effect.IO[Unit]): effect.SyncIO[Unit] = {
+//    val cbZ2C: ExitResult[Throwable, A] => Either[Throwable, A] = {
+//      case ExitResult.Completed(a)       => Right(a)
+//      case ExitResult.Failed(t, _)       => Left(t)
+//      case ExitResult.Terminated(Nil)    => Left(Errors.TerminatedFiber)
+//      case ExitResult.Terminated(t :: _) => Left(t)
+//    }
+//    effect.SyncIO {
+//      unsafeRunAsync(fa) {
+//        cb.compose(cbZ2C).andThen(_.unsafeRunAsync(_ => ()))
+//      }
+//    }.void
+//  }
+//
+//  override def async[A](k: (Either[Throwable, A] => Unit) => Unit): Task[A] = {
+//    val kk = k.compose[ExitResult[Throwable, A] => Unit] {
+//      _.compose[Either[Throwable, A]] {
+//        case Left(t)  => ExitResult.Failed(t)
+//        case Right(r) => ExitResult.Completed(r)
+//      }
+//    }
+//
+//    IO.async(kk)
+//  }
+//
+//  override def asyncF[A](k: (Either[Throwable, A] => Unit) => Task[Unit]): Task[A] = {
+//    val kk = k.compose[ExitResult[Throwable, A] => Unit] {
+//      _.compose[Either[Throwable, A]] {
+//        case Left(t)  => ExitResult.Failed(t)
+//        case Right(r) => ExitResult.Completed(r)
+//      }
+//    }
+//
+//    IO.asyncPure(kk)
+//  }
+
+  override val threadPool: ExecutorService = {
+      new ThreadPoolExecutor(
+        200 /*min Needs to be at least 200 */, Int.MaxValue,
+        60, TimeUnit.SECONDS,
+        new SynchronousQueue[Runnable](false),
+        Executors.defaultThreadFactory())
+    }
   override def suspend[A](thunk: => Task[A]): Task[A] =
-  // Sometimes deadlocks on 'bracket release is called on Completed or Error'
-  //  if implemented as
+    // Sometimes deadlocks on 'bracket release is called on Completed or Error'
+    //  if implemented as
 //   IO.flatten(IO.syncThrowable(thunk))
 //   thunk
-  // ??? (actually, deadlocks like this too, but less often...)
+    // ??? (actually, deadlocks like this too, but less often...)
     IO.suspend(
       try {
         thunk
       } catch {
-        case NonFatal(t) => IO.fail(t)
+        case NonFatal(e) => IO.fail(e)
       }
     )
 
@@ -158,19 +208,18 @@ private class CatsEffect extends CatsMonadError[Throwable] with Effect[Task] wit
     release: A => Task[Unit]
   ): Task[B] = IO.bracket(acquire)(release(_).catchAll(IO.terminate(_)))(use)
 
-  override def bracketCase[A, B](acquire: Task[A])(use: A => Task[B])(release: (A, ExitCase[Throwable]) => Task[Unit]): Task[B] =
-    acquire.bracket0[Throwable, B] {
-      (a, exitResult) =>
-        val exitCase = exitResult match {
-          case ExitResult.Completed(_) => ExitCase.Completed
-          case ExitResult.Failed(error, defects) => ExitCase.Error(Errors.UnhandledError(error, defects))
-          case ExitResult.Terminated(Nil) => ExitCase.Error(Errors.TerminatedFiber)
-          case ExitResult.Terminated(t :: _) => ExitCase.Error(t)
-        }
-        release(a, exitCase)
-//          // eq to cast .catchAll(IO.fail[Throwable](_)))
-          .catchAll(IO.terminate(_))
-//          .asInstanceOf[IO[Nothing, Unit]]
+  override def bracketCase[A, B](
+    acquire: Task[A]
+  )(use: A => Task[B])(release: (A, ExitCase[Throwable]) => Task[Unit]): Task[B] =
+    acquire.bracket0[Throwable, B] { (a, exitResult) =>
+      val exitCase = exitResult match {
+        case ExitResult.Completed(_)           => ExitCase.Completed
+        case ExitResult.Failed(error, defects) => ExitCase.Error(Errors.UnhandledError(error, defects))
+        case ExitResult.Terminated(Nil)        => ExitCase.Error(Errors.TerminatedFiber)
+        case ExitResult.Terminated(t :: _)     => ExitCase.Error(t)
+      }
+      release(a, exitCase)
+        .catchAll(IO.terminate(_))
     }(use)
 }
 

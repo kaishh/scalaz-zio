@@ -2,6 +2,7 @@ package scalaz.zio
 package interop
 
 import java.io.{ByteArrayOutputStream, PrintStream}
+import java.util.concurrent._
 
 import cats.Eq
 import cats.effect.laws.discipline.arbitrary._
@@ -21,6 +22,13 @@ import scala.util.control.NonFatal
 
 class catzSpec extends FunSuite with Matchers with Checkers with Discipline with TestInstances with GenIO with RTS {
 
+  override val threadPool: ExecutorService = {
+      new ThreadPoolExecutor(
+        200 /*min Needs to be at least 200 */, Int.MaxValue,
+        60, TimeUnit.SECONDS,
+        new SynchronousQueue[Runnable](false),
+        Executors.defaultThreadFactory())
+    }
   /**
    * Silences `System.err`, only printing the output in case exceptions are
    * thrown by the executed `thunk`.
