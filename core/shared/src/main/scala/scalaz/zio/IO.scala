@@ -1010,15 +1010,16 @@ object IO {
   final def bracket0[E, A, B](
     acquire: IO[E, A]
   )(release: (A, ExitResult[E, B]) => IO[Nothing, Unit])(use: A => IO[E, B]): IO[E, B] =
-    Ref[Option[(A, ExitResult[E, B])]](None).flatMap { m =>
-      (for {
-        f <- (for {
-              a <- acquire
-              f <- use(a).fork
-              _ <- f.onComplete(r => m.set(Some((a, r))))
-            } yield f).uninterruptibly
-        b <- f.join
-      } yield b).ensuring(m.get.flatMap(_.fold(unit) { case ((a, r)) => release(a, r) }))
+    Ref[Option[ExitResult[E, B]]](None).flatMap { m =>
+      bracket(acquire)(
+        a => m.get.flatMap(_.fold(release(a, ExitResult.Terminated(Errors.TerminatedFiber :: Nil)))(release(a, _)))
+      )(
+        a =>
+          (for {
+            f <- use(a).fork
+            _ <- f.onComplete(r => m.set(Some(r)))
+          } yield f).flatMap(_.join)
+      )
     }
 
   /**
