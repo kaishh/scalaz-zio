@@ -20,6 +20,7 @@ import scalaz.zio.interop.catz._
 
 import scala.util.control.NonFatal
 
+/// TODO monomorphize example code for bracket acquire is cancelable `blocking interrupt deadlock`
 class catzSpec extends FunSuite with Matchers with Checkers with Discipline with TestInstances with GenIO with RTS {
 
   override val threadPool: ExecutorService = {
