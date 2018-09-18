@@ -2,11 +2,10 @@ package scalaz.zio
 package interop
 
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.util.concurrent._
 
 import cats.Eq
 import cats.effect.laws.discipline.arbitrary._
-import cats.effect.laws.discipline.{ConcurrentEffectTests, ConcurrentTests, EffectTests, Parameters}
+import cats.effect.laws.discipline.{ConcurrentTests, EffectTests, Parameters}
 import cats.effect.laws.util.{TestContext, TestInstances}
 import cats.implicits._
 import cats.laws.discipline.{AlternativeTests, BifunctorTests, MonadErrorTests, SemigroupKTests}
@@ -23,13 +22,13 @@ import scala.util.control.NonFatal
 /// TODO monomorphize example code for bracket acquire is cancelable `blocking interrupt deadlock`
 class catzSpec extends FunSuite with Matchers with Checkers with Discipline with TestInstances with GenIO with RTS {
 
-  override val threadPool: ExecutorService = {
-      new ThreadPoolExecutor(
-        200 /*min Needs to be at least 200 */, Int.MaxValue,
-        60, TimeUnit.SECONDS,
-        new SynchronousQueue[Runnable](false),
-        Executors.defaultThreadFactory())
-    }
+//  override val threadPool: ExecutorService = {
+//      new ThreadPoolExecutor(
+//        200 /*min Needs to be at least 200 */, Int.MaxValue,
+//        60, TimeUnit.SECONDS,
+//        new SynchronousQueue[Runnable](false),
+//        Executors.defaultThreadFactory())
+//    }
   /**
    * Silences `System.err`, only printing the output in case exceptions are
    * thrown by the executed `thunk`.
@@ -67,7 +66,7 @@ class catzSpec extends FunSuite with Matchers with Checkers with Discipline with
 
   checkAllAsync("Effect[Task]", implicit e => EffectTests[Task].effect[Int, Int, Int])
   checkAllAsync("Concurrent[Task]", implicit e => ConcurrentTests[Task].concurrent[Int, Int, Int])
-  checkAllAsync("ConcurrentEffect[Task]", implicit e => ConcurrentEffectTests[Task].concurrentEffect[Int, Int, Int])
+//  checkAllAsync("ConcurrentEffect[Task]", implicit e => ConcurrentEffectTests[Task].concurrentEffect[Int, Int, Int])
   checkAllAsync("MonadError[IO[Int, ?]]", implicit e => MonadErrorTests[IO[Int, ?], Int].monadError[Int, Int, Int])
   checkAllAsync("Alternative[IO[Int, ?]]", implicit e => AlternativeTests[IO[Int, ?]].alternative[Int, Int, Int])
   checkAllAsync("Alternative[IO[Option[Unit], ?]]",
