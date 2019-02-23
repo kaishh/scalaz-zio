@@ -272,9 +272,9 @@ class RTSSpec(implicit ee: ExecutionEnv) extends AbstractRTSSpec {
         .run
     ) must_=== Exit.halt(
       Cause.fail(ExampleError) ++
-        Cause.die(InterruptCause1) ++
-        Cause.die(InterruptCause2) ++
-        Cause.die(InterruptCause3)
+        Die(InterruptCause1, true) ++
+        Die(InterruptCause2, true) ++
+        Die(InterruptCause3, true)
     )
 
   def testTerminateOfMultipleFailingFinalizers =
@@ -286,9 +286,9 @@ class RTSSpec(implicit ee: ExecutionEnv) extends AbstractRTSSpec {
         .run
     ) must_=== Exit.halt(
       Cause.die(ExampleError) ++
-        Cause.die(InterruptCause1) ++
-        Cause.die(InterruptCause2) ++
-        Cause.die(InterruptCause3)
+        Die(InterruptCause1, true) ++
+        Die(InterruptCause2, true) ++
+        Die(InterruptCause3, true)
     )
 
   def testEvalOfFailEnsuring = {
@@ -325,7 +325,7 @@ class RTSSpec(implicit ee: ExecutionEnv) extends AbstractRTSSpec {
         .ensuring(IO.die(e2))
         .ensuring(IO.die(e3))
 
-    unsafeRun(nested) must (throwA(FiberFailure(Then(Fail(ExampleError), Then(Die(e2), Die(e3))))))
+    unsafeRun(nested) must (throwA(FiberFailure(Then(Fail(ExampleError), Then(Die(e2, true), Die(e3, true))))))
   }
 
   def testErrorInFinalizerIsReported = {

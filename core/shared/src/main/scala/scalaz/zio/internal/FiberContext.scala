@@ -52,8 +52,9 @@ private[zio] final class FiberContext[E, A](
    * catch exceptions and apply redeem error handling.
    */
   final def unwindStack: IO[Nothing, Option[Cause[Nothing]]] = {
-    def zipCauses(c1: Option[Cause[Nothing]], c2: Option[Cause[Nothing]]): Option[Cause[Nothing]] =
+    def zipCauses(c1: Option[Cause[Nothing]], c2: Option[Cause[Nothing]]): Option[Cause[Nothing]] = {
       c1.flatMap(c1 => c2.map(c1 ++ _)).orElse(c1).orElse(c2)
+    }
 
     var errorHandler: Any => IO[Any, Any]              = null
     var finalizer: IO[Nothing, Option[Cause[Nothing]]] = null
@@ -66,7 +67,7 @@ private[zio] final class FiberContext[E, A](
           errorHandler = a.err.asInstanceOf[Any => IO[Any, Any]]
         case f0: Finalizer =>
           val f: IO[Nothing, Option[Cause[Nothing]]] =
-            f0.finalizer.redeem0(c => IO.succeed(Some(c)), _ => IO.succeed(None))
+            f0.finalizer.redeem0(c => IO.succeed(Some(c.asFinalizerError)), _ => IO.succeed(None))
           if (finalizer eq null) finalizer = f
           else finalizer = finalizer.zipWith(f)(zipCauses)
         case _ =>

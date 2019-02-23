@@ -12,7 +12,8 @@ final case class FiberFailure(cause: Cause[Any]) extends Throwable {
     cause match {
       case Cause.Fail(t: Throwable) => "A checked error was not handled by a fiber: " + gen(t)
       case Cause.Fail(error)        => "A checked error was not handled by a fiber: " + error.toString
-      case Cause.Die(t)             => "An unchecked error was produced by a fiber: " + gen(t)
+      case Cause.Die(t, false)      => "An unchecked error was produced by a fiber: " + gen(t)
+      case Cause.Die(t, true)       => "An unchecked error occurred during finalization after fiber failure: " + gen(t)
       case Cause.Interrupt          => "The fiber was terminated by an interruption"
       case Cause.Then(left, right)  => "Both fibers terminated in sequence: \n" + message(left) + "\n" + message(right)
       case Cause.Both(left, right)  => "Both fibers terminated in parallel: \n" + message(left) + "\n" + message(right)

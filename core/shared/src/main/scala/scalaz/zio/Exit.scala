@@ -44,7 +44,7 @@ sealed abstract class Exit[+E, +A] extends Product with Serializable { self =>
     }
 
   /**
-   * Flat maps over the value ty pe.
+   * Flat maps over the value type.
    */
   final def flatMap[E1 >: E, A1](f: A => Exit[E1, A1]): Exit[E1, A1] =
     self match {
@@ -152,9 +152,9 @@ object Exit extends Serializable {
       Both(self, that)
 
     final def map[E1](f: E => E1): Cause[E1] = self match {
-      case Fail(value) => Fail(f(value))
-      case c @ Die(_)  => c
-      case Interrupt   => Interrupt
+      case Fail(value)   => Fail(f(value))
+      case c @ Die(_, _) => c
+      case Interrupt     => Interrupt
 
       case Then(left, right) => Then(left.map(f), right.map(f))
       case Both(left, right) => Both(left.map(f), right.map(f))
@@ -183,10 +183,35 @@ object Exit extends Serializable {
         }
         .reverse
 
-    final def defects: List[Throwable] =
+    /**
+     * Collect all defects whether direct causes or defects during cleanup
+     */
+    final def defectsAll: List[Throwable] =
       self
         .fold(List.empty[Throwable]) {
-          case (z, Die(v)) => v :: z
+          case (z, Die(v, _)) => v :: z
+        }
+        .reverse
+
+    /**
+     * Collect only defects that caused their respective fibers to exit, not [[finalizerDefects]] arising during cleanup
+     */
+    final def defectsCauses: List[Throwable] =
+      self
+        .fold(List.empty[Throwable]) {
+          case (z, Die(v, false)) => v :: z
+        }
+        .reverse
+
+    /**
+     * Collect only defects that occured during cleanup after failure
+     *
+     * Unlike other errors, these are NOT the direct causes of a failure
+     */
+    final def finalizerDefects: List[Throwable] =
+      self
+        .fold(List.empty[Throwable]) {
+          case (z, Die(v, true)) => v :: z
         }
         .reverse
 
@@ -202,19 +227,27 @@ object Exit extends Serializable {
       case Some(error) => Left(error)
       case None        => Right(self.asInstanceOf[Cause[Nothing]]) // no E inside this cause, can safely cast
     }
+
+    final def asFinalizerError: Cause[E] = self match {
+      case Die(value, false) => Die(value, fromFinalizer = true)
+      case other             => other
+    }
   }
 
   object Cause extends Serializable {
 
     final def fail[E](error: E): Cause[E] = Fail(error)
 
-    final def die(defect: Throwable): Cause[Nothing] = Die(defect)
+    final def die(defect: Throwable): Cause[Nothing] = Die(defect, fromFinalizer = false)
 
     final val interrupt: Cause[Nothing] = Interrupt
 
-    final case class Fail[E](value: E)     extends Cause[E]
-    final case class Die(value: Throwable) extends Cause[Nothing]
-    final case object Interrupt            extends Cause[Nothing]
+    final case class Fail[E](value: E)                             extends Cause[E]
+    final case class Die(value: Throwable, fromFinalizer: Boolean) extends Cause[Nothing]
+    object Die {
+      def apply(value: Throwable): Die = new Die(value, fromFinalizer = false)
+    }
+    final case object Interrupt                                    extends Cause[Nothing]
 
     final case class Then[E](left: Cause[E], right: Cause[E]) extends Cause[E] { self =>
       final def flatten: Set[Cause[E]] = {
