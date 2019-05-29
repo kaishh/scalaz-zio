@@ -209,9 +209,7 @@ private[zio] final class FiberContext[E, A](
     // of a 1-hop left bind, to show a stack trace closer to the point of failure
     var fastPathFlatMapContinuationTrace: ZTraceElement = null
 
-    val tracingRegionStack = this.tracingStatus
-
-    @noinline def inTracingRegion = if (tracingRegionStack ne null) tracingRegionStack.peekOrElse(initialTracingStatus) else false
+    var inTracingRegion: Boolean = this.inTracingRegion
 
     @noinline def fastPathTrace(k: Any => ZIO[Any, E, Any], effect: AnyRef): ZTraceElement =
       if (inTracingRegion) {
@@ -375,7 +373,7 @@ private[zio] final class FiberContext[E, A](
                 case ZIO.Tags.TracingStatus =>
                   val zio = curZio.asInstanceOf[ZIO.TracingStatus[Any, E, Any]]
 
-                  curZio = tracingRegion(zio.flag.toBoolean).bracket_(endTracingRegion, zio.zio)
+                  curZio = (tracingRegion(zio.flag.toBoolean) *> ZIO.effectTotal { inTracingRegion = this.inTracingRegion }).bracket_(endTracingRegion *> ZIO.effectTotal { inTracingRegion = this.inTracingRegion }, zio.zio)
 
                 case ZIO.Tags.CheckTracing =>
                   val zio = curZio.asInstanceOf[ZIO.CheckTracing[Any, E, Any]]
