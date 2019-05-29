@@ -209,7 +209,7 @@ private[zio] final class FiberContext[E, A](
     // of a 1-hop left bind, to show a stack trace closer to the point of failure
     var fastPathFlatMapContinuationTrace: ZTraceElement = null
 
-    @inline def fastPathTrace(k: AnyRef, effect: AnyRef): ZTraceElement =
+    @noinline def fastPathTrace(k: AnyRef, effect: AnyRef): ZTraceElement =
       if (inTracingRegion) {
         val kTrace = traceLocation(k)
 
