@@ -214,8 +214,6 @@ private[zio] final class FiberContext[E, A](
         val kTrace = traceLocation(k)
 
         if (traceEffects) addTrace(effect)
-        // record the nearest continuation for a better trace in case of failure
-        if (traceStack) fastPathFlatMapContinuationTrace = kTrace
 
         kTrace
       } else null
@@ -264,6 +262,8 @@ private[zio] final class FiberContext[E, A](
                       val effect = io2.effect
 
                       val kTrace = fastPathTrace(k, effect)
+                      // record the nearest continuation for a better trace in case of failure
+                      if (traceStack) fastPathFlatMapContinuationTrace = kTrace
 
                       val value = effect()
 
@@ -279,6 +279,8 @@ private[zio] final class FiberContext[E, A](
                       val effect = io2.effect
 
                       val kTrace = fastPathTrace(k, effect)
+                      // record the nearest continuation for a better trace in case of failure
+                      if (traceStack) fastPathFlatMapContinuationTrace = kTrace
 
                       var failIO = null.asInstanceOf[IO[E, Any]]
                       val value = try effect()
