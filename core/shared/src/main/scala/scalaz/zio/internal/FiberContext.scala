@@ -209,7 +209,8 @@ private[zio] final class FiberContext[E, A](
     // of a 1-hop left bind, to show a stack trace closer to the point of failure
     var fastPathFlatMapContinuationTrace: ZTraceElement = null
 
-    @noinline def fastPathTrace(k: AnyRef, effect: AnyRef): ZTraceElement =
+    // guarantee a JIT target with @noinline
+    @noinline def fastPathTrace0(k: AnyRef, effect: AnyRef): ZTraceElement =
       if (inTracingRegion) {
         val kTrace = traceLocation(k)
 
@@ -217,6 +218,14 @@ private[zio] final class FiberContext[E, A](
 
         kTrace
       } else null
+
+    // inline the wrapper to eliminate ObjectRef boxing on the var
+    @inline def fastPathTrace(k: AnyRef, effect: AnyRef): ZTraceElement = {
+      val kTrace = fastPathTrace0(k, effect)
+      // record the nearest continuation for a better trace in case of failure
+      if (traceStack) fastPathFlatMapContinuationTrace = kTrace
+      kTrace
+    }
 
     while (curZio ne null) {
       try {
@@ -262,8 +271,6 @@ private[zio] final class FiberContext[E, A](
                       val effect = io2.effect
 
                       val kTrace = fastPathTrace(k, effect)
-                      // record the nearest continuation for a better trace in case of failure
-                      if (traceStack) fastPathFlatMapContinuationTrace = kTrace
 
                       val value = effect()
 
